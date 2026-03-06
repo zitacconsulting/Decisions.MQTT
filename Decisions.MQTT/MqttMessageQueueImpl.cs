@@ -82,6 +82,7 @@ namespace Decisions.MqttMessageQueue
             catch (Exception ex)
             {
                 Log.Error(ex, $"Failed to publish MQTT message to topic '{topic}'");
+                try { client.DisconnectAsync().GetAwaiter().GetResult(); } catch { }
                 throw;
             }
         }

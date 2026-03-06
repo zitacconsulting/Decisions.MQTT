@@ -53,9 +53,10 @@ namespace Decisions.MqttMessageQueue
                     Log.Info($"[MQTT] Took over expired lease for queue {queueId}, thread {threadId}");
                     return true;
                 }
-                catch (Exception ex) when (ex.Message.Contains("unique constraint"))
+                catch (Exception ex)
                 {
-                    Log.Debug($"[MQTT] Concurrent lease acquisition detected for queue {queueId}");
+                    // Another node likely acquired the lease concurrently (race on delete+insert)
+                    Log.Debug($"[MQTT] Concurrent lease acquisition for queue {queueId}: {ex.Message}");
                     return false;
                 }
             }

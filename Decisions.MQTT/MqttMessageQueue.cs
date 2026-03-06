@@ -47,7 +47,10 @@ namespace Decisions.MqttMessageQueue
         [PropertyClassification(3, "Quality of Service Info", new string[] { "1 Definition" })]
         public string QosNote
         {
-            get => "QoS controls message delivery guarantees. '0 - At Most Once': fire-and-forget, no acknowledgement. '1 - At Least Once': guaranteed delivery but duplicates may occur. '2 - Exactly Once': guaranteed delivery with no duplicates, highest overhead.";
+            get => "Quality of Service (QoS) controls how reliably messages are delivered between the broker and Decisions.\n\n" +
+                   "0 – At Most Once: The message is sent once with no confirmation. Fastest and lowest overhead, but messages may be lost if the network drops or Decisions is restarting. Use for high-frequency data where occasional loss is acceptable (e.g. sensor readings).\n\n" +
+                   "1 – At Least Once: The broker retries until Decisions acknowledges the message. Guarantees delivery, but the same message may arrive more than once if the connection drops mid-acknowledgement. Your flow should handle duplicates if this matters.\n\n" +
+                   "2 – Exactly Once: A four-way handshake ensures each message is delivered exactly once. Safest, but slowest. Use when duplicate processing would cause real problems (e.g. financial transactions, commands that must not run twice).";
             set { }
         }
 
@@ -148,10 +151,24 @@ namespace Decisions.MqttMessageQueue
 
         [ORMField]
         [WritableValue]
+        private bool allowUntrustedCertificates;
+
+        [DataMember]
+        [PropertyClassification(6, "Allow Untrusted Certificates", "2 Connection")]
+        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
+        [BooleanPropertyHidden(nameof(UseTls), false)]
+        public bool AllowUntrustedCertificates
+        {
+            get { return allowUntrustedCertificates; }
+            set { allowUntrustedCertificates = value; }
+        }
+
+        [ORMField]
+        [WritableValue]
         private bool useWebSocket;
 
         [DataMember]
-        [PropertyClassification(6, "Use WebSocket Transport", "2 Connection")]
+        [PropertyClassification(7, "Use WebSocket Transport", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public bool UseWebSocket
         {
@@ -164,7 +181,7 @@ namespace Decisions.MqttMessageQueue
         private string webSocketPath = "/mqtt";
 
         [DataMember]
-        [PropertyClassification(7, "WebSocket Path", "2 Connection")]
+        [PropertyClassification(8, "WebSocket Path", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         [BooleanPropertyHidden(nameof(UseWebSocket), false)]
         public string WebSocketPath
@@ -174,7 +191,7 @@ namespace Decisions.MqttMessageQueue
         }
 
         [ReadonlyEditor]
-        [PropertyClassification(8, "Effective Port", ["2 Connection"])]
+        [PropertyClassification(9, "Effective Port", ["2 Connection"])]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         [BooleanPropertyHidden(nameof(UseDefaultPort), false)]
         public string EffectivePortNote
@@ -192,7 +209,7 @@ namespace Decisions.MqttMessageQueue
         private string username;
 
         [DataMember]
-        [PropertyClassification(9, "Username", "2 Connection")]
+        [PropertyClassification(10, "Username", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public string Username
         {
@@ -205,7 +222,7 @@ namespace Decisions.MqttMessageQueue
         private string password;
 
         [DataMember]
-        [PropertyClassification(10, "Password", "2 Connection")]
+        [PropertyClassification(11, "Password", "2 Connection")]
         [PasswordText]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public string Password
@@ -218,14 +235,31 @@ namespace Decisions.MqttMessageQueue
         [WritableValue]
         private string protocolVersion = "3.1.1";
 
+        [ReadonlyEditor]
+        [PropertyClassification(12, "Protocol Version Info", new string[] { "2 Connection" })]
+        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
+        public string ProtocolVersionNote
+        {
+            get => "MQTT 3.1.1 is the most widely supported version and works with virtually all brokers. " +
+                   "MQTT 5.0 adds advanced features such as Shared Subscriptions (for load-balanced Decisions cluster deployments) and User Properties (metadata on each message). " +
+                   "Only switch to 5.0 if your broker supports it and you need these features.";
+            set { }
+        }
+
         [DataMember]
-        [PropertyClassification(10, "Protocol Version", "2 Connection")]
+        [PropertyClassification(13, "Protocol Version", "2 Connection")]
         [SelectStringEditor(nameof(ProtocolVersionOptions))]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public string ProtocolVersion
         {
             get { return protocolVersion; }
-            set { protocolVersion = value; OnPropertyChanged(nameof(EffectiveProtocolVersion)); }
+            set
+            {
+                protocolVersion = value;
+                if (value != "5.0")
+                    sharedSubscriptionGroup = null;
+                OnPropertyChanged(nameof(EffectiveProtocolVersion));
+            }
         }
 
         [PropertyHidden]
@@ -240,7 +274,7 @@ namespace Decisions.MqttMessageQueue
         private int keepAliveSeconds = 60;
 
         [DataMember]
-        [PropertyClassification(11, "Keep Alive (seconds)", "2 Connection")]
+        [PropertyClassification(14, "Keep Alive (seconds)", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public int KeepAliveSeconds
         {
@@ -253,7 +287,7 @@ namespace Decisions.MqttMessageQueue
         private int connectionTimeoutSeconds = 10;
 
         [DataMember]
-        [PropertyClassification(12, "Connection Timeout (seconds)", "2 Connection")]
+        [PropertyClassification(15, "Connection Timeout (seconds)", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public int ConnectionTimeoutSeconds
         {
@@ -261,12 +295,26 @@ namespace Decisions.MqttMessageQueue
             set { connectionTimeoutSeconds = value; }
         }
 
+        [ReadonlyEditor]
+        [PropertyClassification(16, "Persistent Session Info", new string[] { "2 Connection" })]
+        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
+        public string PersistentSessionNote
+        {
+            get => "When enabled, the broker remembers this Decisions server between disconnections and queues up any messages that arrive while offline — delivering them when the connection is restored. " +
+                   "This requires the broker to store state per client, identified by the Client ID. " +
+                   "If the queue is recreated with a new auto-generated Client ID, the old stored messages will never be delivered and accumulate on the broker. " +
+                   "Use a fixed Client ID Override if you enable this.\n\n" +
+                   "When disabled, each reconnection starts fresh — no messages are saved during downtime. " +
+                   "This is simpler and more predictable for most use cases.";
+            set { }
+        }
+
         [ORMField]
         [WritableValue]
-        private bool persistentSession = true;
+        private bool persistentSession = false;
 
         [DataMember]
-        [PropertyClassification(13, "Persistent Session", "2 Connection")]
+        [PropertyClassification(17, "Persistent Session", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public bool PersistentSession
         {
@@ -393,7 +441,7 @@ namespace Decisions.MqttMessageQueue
         private string lwtQosLevel = "0 - At Most Once";
 
         [DataMember]
-        [PropertyClassification(5, "Last Will QoS", "4 Last Will")]
+        [PropertyClassification(5, "Last Will Quality of Service (QoS)", "4 Last Will")]
         [SelectStringEditor(nameof(QosOptions))]
         [BooleanPropertyHidden(nameof(EnableLwt), false)]
         public string LwtQosLevel
@@ -434,6 +482,8 @@ namespace Decisions.MqttMessageQueue
 
             if (string.IsNullOrEmpty(Topic))
                 issues.Add(new ValidationIssue(this, "Topic filter must be supplied", "", BreakLevel.Fatal));
+            else
+                ValidateTopicFilter(Topic, issues);
 
             if (OverrideSettings && string.IsNullOrEmpty(Server))
                 issues.Add(new ValidationIssue(this, "Broker host must be supplied when overriding settings", "", BreakLevel.Fatal));
@@ -447,7 +497,29 @@ namespace Decisions.MqttMessageQueue
             if (!string.IsNullOrEmpty(SharedSubscriptionGroup) && MqttUtils.GetProtocolVersion(this) != MqttProtocolVersion.V500)
                 issues.Add(new ValidationIssue(this, "Shared Subscription Group requires Protocol Version 5.0", "", BreakLevel.Fatal));
 
+            if (!string.IsNullOrEmpty(SharedSubscriptionGroup) &&
+                (SharedSubscriptionGroup.Contains('/') || SharedSubscriptionGroup.Contains('+') || SharedSubscriptionGroup.Contains('#')))
+                issues.Add(new ValidationIssue(this, "Shared Subscription Group must not contain '/', '+' or '#'", "", BreakLevel.Fatal));
+
             return issues.ToArray();
+        }
+
+        private void ValidateTopicFilter(string filter, List<ValidationIssue> issues)
+        {
+            string[] segments = filter.Split('/');
+            for (int i = 0; i < segments.Length; i++)
+            {
+                string seg = segments[i];
+                if (seg.Contains('#'))
+                {
+                    if (seg != "#")
+                        issues.Add(new ValidationIssue(this, $"Invalid topic filter: '#' must occupy an entire level, not combined with other characters (segment '{seg}')", "", BreakLevel.Fatal));
+                    else if (i != segments.Length - 1)
+                        issues.Add(new ValidationIssue(this, "Invalid topic filter: '#' must only appear at the last level (e.g. 'sensors/#')", "", BreakLevel.Fatal));
+                }
+                if (seg.Contains('+') && seg != "+")
+                    issues.Add(new ValidationIssue(this, $"Invalid topic filter: '+' must occupy an entire level, not combined with other characters (segment '{seg}')", "", BreakLevel.Fatal));
+            }
         }
     }
 }

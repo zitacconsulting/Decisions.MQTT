@@ -17,6 +17,7 @@ namespace Decisions.MqttMessageQueue
             string host = GetHost(queueDef);
             int port = GetPort(queueDef);
             bool useTls = GetUseTls(queueDef);
+            bool allowUntrustedCertificates = GetAllowUntrustedCertificates(queueDef);
             string username = GetUsername(queueDef);
             string password = GetPassword(queueDef);
             bool useWebSocket = GetUseWebSocket(queueDef);
@@ -36,12 +37,24 @@ namespace Decisions.MqttMessageQueue
             {
                 string scheme = useTls ? "wss" : "ws";
                 builder = builder.WithWebSocketServer(o => o.WithUri($"{scheme}://{host}:{port}{webSocketPath}"));
+                if (useTls)
+                    builder = builder.WithTlsOptions(o =>
+                    {
+                        o.UseTls();
+                        if (allowUntrustedCertificates)
+                            o.WithCertificateValidationHandler(_ => true);
+                    });
             }
             else
             {
                 builder = builder.WithTcpServer(host, port);
                 if (useTls)
-                    builder = builder.WithTlsOptions(o => o.UseTls());
+                    builder = builder.WithTlsOptions(o =>
+                    {
+                        o.UseTls();
+                        if (allowUntrustedCertificates)
+                            o.WithCertificateValidationHandler(_ => true);
+                    });
             }
 
             // MQTT 5: set SessionExpiryInterval so the broker retains the session after disconnect
@@ -67,7 +80,7 @@ namespace Decisions.MqttMessageQueue
 
         public static string GetClientId(MqttMessageQueue queueDef)
         {
-            if (queueDef.OverrideSettings && !string.IsNullOrEmpty(queueDef.ClientIdOverride))
+            if (!string.IsNullOrEmpty(queueDef.ClientIdOverride))
                 return queueDef.ClientIdOverride;
             return $"decisions-mqtt-{queueDef.Id}";
         }
@@ -76,7 +89,7 @@ namespace Decisions.MqttMessageQueue
         {
             if (queueDef.OverrideSettings)
                 return queueDef.PersistentSession;
-            return GetSettingsForQueue(queueDef)?.PersistentSession ?? true;
+            return GetSettingsForQueue(queueDef)?.PersistentSession ?? false;
         }
 
         public static int GetKeepAlive(MqttMessageQueue queueDef)
@@ -161,6 +174,13 @@ namespace Decisions.MqttMessageQueue
             if (queueDef.OverrideSettings)
                 return queueDef.UseTls;
             return GetSettingsForQueue(queueDef)?.UseTls ?? false;
+        }
+
+        public static bool GetAllowUntrustedCertificates(MqttMessageQueue queueDef)
+        {
+            if (queueDef.OverrideSettings)
+                return queueDef.AllowUntrustedCertificates;
+            return GetSettingsForQueue(queueDef)?.AllowUntrustedCertificates ?? false;
         }
 
         public static string GetUsername(MqttMessageQueue queueDef)

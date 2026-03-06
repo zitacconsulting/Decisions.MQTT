@@ -51,7 +51,11 @@ namespace Decisions.MqttMessageQueue
         protected MqttMessageQueue GetQueue()
         {
             var queues = MqttUtils.GetSettings(Flow?.GetProjectId())?.Queues;
-            return queues?.FirstOrDefault(q => q.DisplayName == queueName);
+            if (queues == null) return null;
+            var matches = queues.Where(q => q.DisplayName == queueName).ToArray();
+            if (matches.Length > 1)
+                Log.Warn($"[MQTT] Multiple queues found with name '{queueName}' — using the first match.");
+            return matches.FirstOrDefault();
         }
     }
 
@@ -106,7 +110,12 @@ namespace Decisions.MqttMessageQueue
             new OutcomeScenarioData("Done")
         };
 
-        public ValidationIssue[] GetValidationIssues() => new ValidationIssue[0];
+        public ValidationIssue[] GetValidationIssues()
+        {
+            if (string.IsNullOrEmpty(queueName) || queueName.StartsWith("--"))
+                return new[] { new ValidationIssue(this, "An MQTT queue must be selected", "", BreakLevel.Fatal) };
+            return new ValidationIssue[0];
+        }
 
         public ResultData Run(StepStartData data)
         {
@@ -155,6 +164,7 @@ namespace Decisions.MqttMessageQueue
             catch (Exception ex)
             {
                 Log.Error(ex, $"[MQTT] Failed to publish to topic '{topic}'");
+                try { client.DisconnectAsync().GetAwaiter().GetResult(); } catch { }
                 throw;
             }
 

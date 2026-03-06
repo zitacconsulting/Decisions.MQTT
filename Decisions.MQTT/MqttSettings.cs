@@ -68,10 +68,23 @@ namespace Decisions.MqttMessageQueue
 
         [ORMField]
         [WritableValue]
+        private bool allowUntrustedCertificates;
+
+        [DataMember]
+        [PropertyClassification(5, "Allow Untrusted Certificates", "Settings")]
+        [BooleanPropertyHidden(nameof(UseTls), false)]
+        public bool AllowUntrustedCertificates
+        {
+            get { return allowUntrustedCertificates; }
+            set { allowUntrustedCertificates = value; }
+        }
+
+        [ORMField]
+        [WritableValue]
         private bool useWebSocket;
 
         [DataMember]
-        [PropertyClassification(5, "Use WebSocket Transport", "Settings")]
+        [PropertyClassification(6, "Use WebSocket Transport", "Settings")]
         public bool UseWebSocket
         {
             get { return useWebSocket; }
@@ -83,7 +96,7 @@ namespace Decisions.MqttMessageQueue
         private string webSocketPath = "/mqtt";
 
         [DataMember]
-        [PropertyClassification(6, "WebSocket Path", "Settings")]
+        [PropertyClassification(7, "WebSocket Path", "Settings")]
         [BooleanPropertyHidden(nameof(UseWebSocket), false)]
         public string WebSocketPath
         {
@@ -94,7 +107,7 @@ namespace Decisions.MqttMessageQueue
         // --- Authentication ---
 
         [ReadonlyEditor]
-        [PropertyClassification(7, "Effective Port", "Settings")]
+        [PropertyClassification(8, "Effective Port", "Settings")]
         [BooleanPropertyHidden(nameof(UseDefaultPort), false)]
         public string EffectivePortNote
         {
@@ -107,7 +120,7 @@ namespace Decisions.MqttMessageQueue
         private string username;
 
         [DataMember]
-        [PropertyClassification(8, "Username", "Settings")]
+        [PropertyClassification(9, "Username", "Settings")]
         public string Username
         {
             get { return username; }
@@ -119,7 +132,7 @@ namespace Decisions.MqttMessageQueue
         private string password;
 
         [DataMember]
-        [PropertyClassification(9, "Password", "Settings")]
+        [PropertyClassification(10, "Password", "Settings")]
         [PasswordText]
         public string Password
         {
@@ -133,8 +146,18 @@ namespace Decisions.MqttMessageQueue
         [WritableValue]
         private string protocolVersion = "3.1.1";
 
+        [ReadonlyEditor]
+        [PropertyClassification(11, "Protocol Version Info", "Settings")]
+        public string ProtocolVersionNote
+        {
+            get => "MQTT 3.1.1 is the most widely supported version and works with virtually all brokers. " +
+                   "MQTT 5.0 adds advanced features such as Shared Subscriptions (for load-balanced Decisions cluster deployments) and User Properties (metadata on each message). " +
+                   "Only switch to 5.0 if your broker supports it and you need these features.";
+            set { }
+        }
+
         [DataMember]
-        [PropertyClassification(10, "Protocol Version", "Settings")]
+        [PropertyClassification(12, "Protocol Version", "Settings")]
         [SelectStringEditor(nameof(ProtocolVersionOptions))]
         public string ProtocolVersion
         {
@@ -150,7 +173,7 @@ namespace Decisions.MqttMessageQueue
         private int keepAliveSeconds = 60;
 
         [DataMember]
-        [PropertyClassification(11, "Keep Alive (seconds)", "Settings")]
+        [PropertyClassification(13, "Keep Alive (seconds)", "Settings")]
         public int KeepAliveSeconds
         {
             get { return keepAliveSeconds; }
@@ -162,19 +185,32 @@ namespace Decisions.MqttMessageQueue
         private int connectionTimeoutSeconds = 10;
 
         [DataMember]
-        [PropertyClassification(12, "Connection Timeout (seconds)", "Settings")]
+        [PropertyClassification(14, "Connection Timeout (seconds)", "Settings")]
         public int ConnectionTimeoutSeconds
         {
             get { return connectionTimeoutSeconds; }
             set { connectionTimeoutSeconds = value; }
         }
 
+        [ReadonlyEditor]
+        [PropertyClassification(15, "Persistent Session Info", "Settings")]
+        public string PersistentSessionNote
+        {
+            get => "When enabled, the broker remembers this Decisions server between disconnections and queues up any messages that arrive while offline — delivering them when the connection is restored. " +
+                   "This requires the broker to store state per client, identified by the Client ID. " +
+                   "If the queue is recreated with a new auto-generated Client ID, the old stored messages will never be delivered and accumulate on the broker. " +
+                   "Use a fixed Client ID Override if you enable this.\n\n" +
+                   "When disabled, each reconnection starts fresh — no messages are saved during downtime. " +
+                   "This is simpler and more predictable for most use cases.";
+            set { }
+        }
+
         [ORMField]
         [WritableValue]
-        private bool persistentSession = true;
+        private bool persistentSession = false;
 
         [DataMember]
-        [PropertyClassification(13, "Persistent Session", "Settings")]
+        [PropertyClassification(16, "Persistent Session", "Settings")]
         public bool PersistentSession
         {
             get { return persistentSession; }

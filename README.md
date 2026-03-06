@@ -25,27 +25,30 @@
 ### Broker Connectivity
 - MQTT 3.1.1 and MQTT 5.0 protocol support
 - TCP and WebSocket transport (including WSS/TLS)
-- TLS/SSL encryption
+- TLS/SSL encryption with optional untrusted certificate bypass
 - Username/password authentication
 - Configurable Keep Alive and Connection Timeout
-- Custom Client ID override
+- Custom Client ID override (independent of connection override settings)
+- Automatic thread restart on broker connection loss
 
 ### Topic Subscriptions
 - Exact topic subscriptions (e.g. `sensors/temperature`)
 - Single-level wildcard `+` (e.g. `sensors/+/temperature`)
 - Multi-level wildcard `#` (e.g. `factory/line1/#`)
+- Topic filter syntax validated at configuration time
 - Shared subscriptions for consumer groups (MQTT 5.0)
 
 ### Message Processing
-- Configurable QoS levels (0, 1, 2)
+- Configurable QoS levels (0 = At Most Once, 1 = At Least Once, 2 = Exactly Once)
 - Persistent sessions for guaranteed delivery after reconnect
-- Configurable in-memory message buffer
+- Configurable in-memory message buffer with buffer-full warnings in the log
 - MQTT 5.0 User Properties passed as flow message headers
 
 ### Reliability
 - Cluster-safe single-connection lease management
 - Automatic failover between cluster nodes
 - Last Will and Testament (LWT) for offline detection
+- Connection loss detection triggers automatic Decisions thread restart
 
 ### Flow Integration
 - **Publish MQTT Message** — publish to any topic from a flow
@@ -100,39 +103,59 @@ These apply to all queues unless overridden per queue.
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| Broker Host | MQTT broker hostname or IP | localhost |
-| Use Default Port | Use standard port (1883 / 8883 for TLS) | true |
+| Broker Host | MQTT broker hostname or IP | — |
+| Use Default Port | Use standard port based on TLS/WebSocket settings | true |
 | Port | Custom port number | 1883 |
 | Use TLS/SSL | Enable TLS encryption | false |
+| Allow Untrusted Certificates | Skip TLS certificate validation (not recommended for production) | false |
+| Use WebSocket Transport | Connect via WebSocket instead of TCP | false |
+| WebSocket Path | WebSocket endpoint path | /mqtt |
 | Username | Broker username | — |
 | Password | Broker password | — |
 | Protocol Version | MQTT 3.1.1 or 5.0 | 3.1.1 |
 | Keep Alive (seconds) | Heartbeat interval | 60 |
 | Connection Timeout (seconds) | Max time to establish connection | 10 |
-| Use WebSocket Transport | Connect via WebSocket instead of TCP | false |
-| WebSocket Path | WebSocket endpoint path | /mqtt |
-| Persistent Session | Resume subscription state after reconnect | true |
+| Persistent Session | Resume subscription state after reconnect | false |
+
+**Default ports by transport:**
+| Transport | Plain | TLS |
+|-----------|-------|-----|
+| TCP | 1883 | 8883 |
+| WebSocket | 8083 | 8084 |
 
 ### Per-Queue Settings
 
 #### 1 Definition
 | Setting | Description |
 |---------|-------------|
-| Topic Filter | MQTT topic to subscribe to. Supports `+` and `#` wildcards |
+| Topic Filter | MQTT topic to subscribe to. Supports `+` (single level) and `#` (multi-level, must be last) wildcards |
 | Quality of Service (QoS) | 0 = At Most Once, 1 = At Least Once, 2 = Exactly Once |
 
 #### 2 Connection
-Enable **Override Global Settings** to configure broker settings per queue, overriding the global defaults. All global settings are available as per-queue overrides, plus:
+Enable **Override Global Settings** to configure broker settings per queue, overriding the global defaults.
 
 | Setting | Description |
 |---------|-------------|
-| Client ID Override | Custom MQTT client ID (default: `decisions-mqtt-{queueId}`) |
-| Shared Subscription Group | Consumer group for MQTT 5.0 shared subscriptions |
+| Broker Host | MQTT broker hostname or IP |
+| Use Default Port | Use standard port based on TLS/WebSocket settings |
+| Port | Custom port number |
+| Use TLS/SSL | Enable TLS encryption |
+| Allow Untrusted Certificates | Skip TLS certificate validation |
+| Use WebSocket Transport | Connect via WebSocket instead of TCP |
+| WebSocket Path | WebSocket endpoint path |
+| Username | Broker username |
+| Password | Broker password |
+| Protocol Version | MQTT 3.1.1 or 5.0 |
+| Keep Alive (seconds) | Heartbeat interval |
+| Connection Timeout (seconds) | Max time to establish connection |
+| Persistent Session | Resume subscription state after reconnect |
 
 #### 3 Advanced
 | Setting | Description | Default |
 |---------|-------------|---------|
 | Message Buffer Size | Max messages held in memory awaiting flow processing | 1000 |
+| Client ID Override | Custom MQTT client ID (default: `decisions-mqtt-{queueId}`). Always applied regardless of the Override Global Settings toggle. | — |
+| Shared Subscription Group | Consumer group name for MQTT 5.0 shared subscriptions (e.g. `decisions`). Only visible when protocol version 5.0 is active. | — |
 
 #### 4 Last Will and Testament
 | Setting | Description |
@@ -182,6 +205,8 @@ Select **Protocol Version: 5.0** in global settings or per-queue connection sett
 ### Persistent Sessions
 With MQTT 5.0 and `Persistent Session = true`, the broker retains the subscription state between reconnects using `SessionExpiryInterval = MaxValue`. Missed messages published at QoS 1 or 2 during a disconnect are delivered on reconnect.
 
+> **Note:** Persistent sessions are disabled by default. If you enable them, use a fixed **Client ID Override** — the broker identifies your session by client ID, and if the queue is recreated with a new auto-generated ID the broker's stored session becomes orphaned.
+
 ### Shared Subscriptions
 Normally in MQTT every subscriber receives a copy of each message. In a Decisions cluster this means all nodes would process every message — which is rarely desirable.
 
@@ -196,14 +221,14 @@ Publisher → Broker → $share/decisions/sensors/#
                           └── Node C  ← message 3, 6, 9...
 ```
 
-> **Note:** Shared subscriptions require Protocol Version 5.0 and broker support (e.g. Mosquitto 2.0+, EMQX, HiveMQ).
+> **Note:** Shared subscriptions require Protocol Version 5.0 and broker support (e.g. Mosquitto 2.0+, EMQX, HiveMQ). The Shared Subscription Group field is only visible in the queue configuration when the effective protocol version is 5.0.
 
 #### Message Loss Risk
 - **QoS 0:** Messages can be lost if a node goes down before the flow completes. The broker does not retry QoS 0 delivery.
 - **QoS 1 or 2:** The broker holds the message until the client sends an ACK. If a node goes down before ACKing, most modern brokers re-deliver the message to another node in the group. Use QoS 1 or 2 for guaranteed delivery in shared subscription mode.
 
 #### Client IDs in Shared Subscription Mode
-Each node automatically gets a unique client ID (`decisions-mqtt-{queueId}-{machineName}`) to avoid broker conflicts. Clean sessions are used so the broker redistributes messages rather than queuing them for a specific reconnecting node.
+Each Decisions process automatically gets a unique client ID (`decisions-mqtt-{queueId}-{machineName}-{processGuid}`) to avoid broker conflicts — even when multiple Decisions processes run on the same machine. Clean sessions are used so the broker redistributes messages rather than queuing them for a specific reconnecting node.
 
 ### User Properties as Flow Headers
 MQTT 5.0 messages can carry User Properties (key/value metadata set by the publisher). The module extracts these and passes them as flow message headers with the prefix `UserProp.{name}`.
@@ -232,21 +257,31 @@ All cluster nodes connect to the broker simultaneously. The broker distributes m
 | Failover | Automatic (lease expiry) | Automatic (broker reconnect) |
 | Configuration | Default | Set Shared Subscription Group |
 
+### Connection Loss and Restart
+If the broker connection drops unexpectedly, the module detects it via the MQTT disconnect event and raises an exception on the next receive cycle. Decisions catches this and automatically restarts the worker thread, which reconnects to the broker. No manual intervention is required.
+
 ## Monitoring
 
-The module logs under the `MQTT` and `MQTT Step` log categories.
+The module logs under the following log categories:
+
+| Category | Description |
+|----------|-------------|
+| `MQTT` | Utility/shared operations, settings access |
+| `MQTT Settings` | Global and project settings |
+| `MQTT Flow Worker` | Queue worker thread — message receive, lease, connection events |
+| `MQTT Step` | Flow step execution — publish, enable, disable |
 
 ### Log Levels
 - **ERROR** — Connection failures, publish errors, unhandled exceptions
-- **WARN** — Unsupported operations (e.g. `GetMessage`, `GetMessageCount`)
-- **INFO** — Lease acquisition/release, queue start/stop
+- **WARN** — Connection loss, message buffer full (messages dropped), lease changes
+- **INFO** — Lease acquisition/release, queue start/stop, connect/subscribe events
 - **DEBUG** — Published messages, received messages, lease renewals
 
 ### Configure Log Level
 ```
 System > Settings > System Settings > Log Settings
 ```
-Set the log level for the `MQTT` category.
+Set the log level for the relevant category (e.g. `MQTT Flow Worker`).
 
 ## Building from Source
 

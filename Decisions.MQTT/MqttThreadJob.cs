@@ -23,11 +23,16 @@ namespace Decisions.MqttMessageQueue
         private static readonly TimeSpan StandbyPollInterval = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan MessageReceiveTimeout = TimeSpan.FromSeconds(1);
 
+        // Stable unique suffix for this process instance — ensures each Decisions process
+        // gets a distinct client ID in shared subscription mode, even on the same machine.
+        private static readonly string ProcessSuffix = $"{Environment.MachineName}-{Guid.NewGuid():N}";
+
         private string threadId;
         private bool isLeaseHolder;
         private IMqttClient mqttClient;
         private BlockingCollection<MqttApplicationMessage> incomingMessages;
         private DateTime lastLeaseRenewal = DateTime.MinValue;
+        private volatile bool connectionLost;
 
         // When a Shared Subscription Group is configured all cluster nodes connect simultaneously
         // and the broker distributes messages between them. The lease mechanism is not used in
@@ -66,6 +71,10 @@ namespace Decisions.MqttMessageQueue
 
         protected override void ReceiveMessages()
         {
+            if (isLeaseHolder && connectionLost)
+                throw new InvalidOperationException(
+                    $"[MQTT] Lost connection to broker for queue '{queueDefinition.DisplayName}'. Decisions will restart this thread.");
+
             if (isLeaseHolder)
             {
                 // In lease mode: renew the lease periodically
@@ -149,14 +158,25 @@ namespace Decisions.MqttMessageQueue
 
             mqttClient.ApplicationMessageReceivedAsync += e =>
             {
-                incomingMessages?.TryAdd(e.ApplicationMessage);
+                if (incomingMessages != null && !incomingMessages.TryAdd(e.ApplicationMessage))
+                    log.Warn($"[MQTT] Message buffer full for queue '{queueDefinition.DisplayName}' — incoming message dropped. Consider increasing Message Buffer Size.");
+                return Task.CompletedTask;
+            };
+
+            mqttClient.DisconnectedAsync += e =>
+            {
+                if (e.ClientWasConnected)
+                {
+                    log.Warn($"[MQTT] Connection lost for queue '{queueDefinition.DisplayName}': {e.Exception?.Message ?? "unknown reason"}");
+                    connectionLost = true;
+                }
                 return Task.CompletedTask;
             };
 
             // In shared subscription mode each node must have a unique client ID.
             // In lease mode only one node connects so the shared queue client ID is fine.
             string clientId = IsSharedSubscriptionMode
-                ? $"{MqttUtils.GetClientId(queueDefinition)}-{Environment.MachineName}"
+                ? $"{MqttUtils.GetClientId(queueDefinition)}-{ProcessSuffix}"
                 : MqttUtils.GetClientId(queueDefinition);
 
             // Persistent sessions make less sense in shared subscription mode: if a node
@@ -179,24 +199,35 @@ namespace Decisions.MqttMessageQueue
                     .WithQualityOfServiceLevel((MqttQualityOfServiceLevel)queueDefinition.GetQosInt()))
                 .Build();
 
-            mqttClient.SubscribeAsync(subscribeOptions).GetAwaiter().GetResult();
+            try
+            {
+                mqttClient.SubscribeAsync(subscribeOptions).GetAwaiter().GetResult();
+            }
+            catch
+            {
+                Disconnect();
+                throw;
+            }
 
             log.Info($"[MQTT] Connected and subscribed to '{topicToSubscribe}' (QoS {queueDefinition.GetQosInt()})");
         }
 
         private void Disconnect()
         {
+            var client = mqttClient;
+            mqttClient = null;
             try
             {
-                if (mqttClient?.IsConnected == true)
-                    mqttClient.DisconnectAsync().GetAwaiter().GetResult();
-
-                mqttClient?.Dispose();
-                mqttClient = null;
+                if (client?.IsConnected == true)
+                    client.DisconnectAsync().GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
                 log.Warn($"[MQTT] Error disconnecting: {ex.Message}");
+            }
+            finally
+            {
+                client?.Dispose();
             }
         }
     }
