@@ -1,0 +1,29 @@
+{
+    "Resources": {
+        "NoComponents": true,
+        "CoreServicesDlls": [
+            "./Decisions.MQTT/bin/Decisions.MQTT.dll"
+        ],
+        "ReferenceDlls": [
+            "./Decisions.MQTT/bin/MQTTnet.dll"
+        ],
+        "CustomImages": [
+            "mqtt-ver.png"
+        ],
+        "CliDlls": null,
+        "WebPages": null,
+        "SilverlightDlls": null,
+        "AgentDlls": null,
+        "InstallScript": null,
+        "SqlScripts": null,
+        "ObjectsToImport": null,
+        "MsSqlScript": null
+    },
+    "Version": "9.21.0",
+    "ImagePath": "mqtt-ver.png",
+    "Dependencies": [{
+        "ModuleName": "Decisions.MessageQueues.zip",
+        "AutoInstall": true
+    }],
+    "Description": "The MQTT module integrates MQTT messaging into the Decisions platform. MQTT is a lightweight publish-subscribe protocol commonly used in IoT and real-time data scenarios. This module supports MQTT 3.1.1 and MQTT 5.0 with persistent sessions, cluster-safe single-connection lease management, and automatic failover between cluster nodes."
+}

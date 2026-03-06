@@ -1,0 +1,17 @@
+# Build output
+bin/
+obj/
+*.zip
+
+# External / local DLLs — not committed to source control
+*.dll
+!**/.gitkeep
+
+# IDE and tool directories
+.vscode/
+.claude/
+.vs/
+
+# User-specific files
+*.user
+*.suo
