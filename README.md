@@ -208,52 +208,59 @@ With MQTT 5.0 and `Persistent Session = true`, the broker retains the subscripti
 > **Note:** Persistent sessions are disabled by default. If you enable them, use a fixed **Client ID Override** — the broker identifies your session by client ID, and if the queue is recreated with a new auto-generated ID the broker's stored session becomes orphaned.
 
 ### Shared Subscriptions
-Normally in MQTT every subscriber receives a copy of each message. In a Decisions cluster this means all nodes would process every message — which is rarely desirable.
+Normally in MQTT every subscriber receives a copy of each message. Without shared subscriptions, all active worker threads would process every message — which is rarely desirable.
 
-Shared subscriptions solve this: the broker distributes messages round-robin across all nodes in the group so each message is processed exactly once, regardless of how many nodes are running.
+Shared subscriptions solve this: the broker distributes messages across all connected consumers so each message is processed exactly once, regardless of how many consumers are connected.
 
-Set **Shared Subscription Group** to a group name (e.g. `decisions`) and the module subscribes as `$share/decisions/{topic}`. When a group name is configured, **all cluster nodes connect simultaneously** and the broker handles load balancing. The single-node lease mechanism is automatically bypassed in this mode.
+Set **Shared Subscription Group** to a group name (e.g. `decisions`) and the module subscribes as `$share/decisions/{topic}`. When a group name is configured, each worker thread connects independently and the broker load-balances messages between them. The single-connection lease mechanism is automatically bypassed in this mode.
+
+This is useful in two scenarios:
+- **Single server, multiple threads:** Set a higher **Active Flow Count** on the message handler to process messages in parallel. Decisions automatically spawns additional threads (up to Active Flow Count) as load increases, in batches controlled by **Max. Number of New Threads to Create When Busy**.
+- **Multi-server cluster:** All nodes connect and the broker distributes messages across the cluster.
 
 ```
 Publisher → Broker → $share/decisions/sensors/#
-                          ├── Node A  ← message 1, 4, 7...
-                          ├── Node B  ← message 2, 5, 8...
-                          └── Node C  ← message 3, 6, 9...
+                          ├── Thread/Node A  ← message 1, 4, 7...
+                          ├── Thread/Node B  ← message 2, 5, 8...
+                          └── Thread/Node C  ← message 3, 6, 9...
 ```
 
 > **Note:** Shared subscriptions require Protocol Version 5.0 and broker support (e.g. Mosquitto 2.0+, EMQX, HiveMQ). The Shared Subscription Group field is only visible in the queue configuration when the effective protocol version is 5.0.
 
 #### Message Loss Risk
-- **QoS 0:** Messages can be lost if a node goes down before the flow completes. The broker does not retry QoS 0 delivery.
-- **QoS 1 or 2:** The broker holds the message until the client sends an ACK. If a node goes down before ACKing, most modern brokers re-deliver the message to another node in the group. Use QoS 1 or 2 for guaranteed delivery in shared subscription mode.
+- **QoS 0:** Messages can be lost if a consumer goes down before the flow completes. The broker does not retry QoS 0 delivery.
+- **QoS 1 or 2:** The broker holds the message until the client sends an ACK. If a consumer goes down before ACKing, most modern brokers re-deliver the message to another consumer in the group. Use QoS 1 or 2 for guaranteed delivery in shared subscription mode.
 
 #### Client IDs in Shared Subscription Mode
-Each Decisions process automatically gets a unique client ID (`decisions-mqtt-{queueId}-{machineName}-{processGuid}`) to avoid broker conflicts — even when multiple Decisions processes run on the same machine. Clean sessions are used so the broker redistributes messages rather than queuing them for a specific reconnecting node.
+Each worker thread automatically gets a unique client ID (`decisions-mqtt-{queueId}-{machineName}-{threadGuid}`) to avoid broker conflicts. This works correctly both across cluster nodes and when multiple threads are configured for the same queue on a single server (via Active Flow Count in the message handler). Clean sessions are used so the broker redistributes messages rather than queuing them for a specific reconnecting thread.
 
 ### User Properties as Flow Headers
 MQTT 5.0 messages can carry User Properties (key/value metadata set by the publisher). The module extracts these and passes them as flow message headers with the prefix `UserProp.{name}`.
 
 **Example:** A publisher sets User Property `deviceId = sensor-42`. In the Decisions flow handler the header `UserProp.deviceId` is available with value `sensor-42`.
 
-## Cluster Deployments
+## Scaling and Cluster Deployments
 
-The module supports cluster modes depending on the queue configuration:
+The module supports two connection modes depending on the queue configuration:
 
 ### Lease Mode (default)
-One cluster node holds the MQTT connection at a time. A database-backed lease (60-second TTL, renewed every 20 seconds) ensures exclusivity. If the active node goes down, the lease expires and another node takes over automatically.
+Exactly one connection is active at a time — one thread on one server holds the MQTT connection. A database-backed lease (60-second TTL, renewed every 20 seconds) ensures exclusivity. If the active thread or server goes down, the lease expires and another thread takes over automatically.
 
-**Use when:** MQTT 3.1.1, low-to-medium traffic, or when message ordering must be preserved.
+**Use when:** MQTT 3.1.1, ordered processing, or when a single sequential consumer is sufficient.
 
 ### Shared Subscription Mode (MQTT 5.0)
-All cluster nodes connect to the broker simultaneously. The broker distributes messages across nodes using the shared subscription group. No lease is used — each node processes its share independently.
+Every worker thread connects to the broker independently. The broker distributes messages across all connected threads using the shared subscription group. No lease is used.
 
-**Use when:** High-throughput topics in a multi-node cluster where parallel processing is desired.
+This works for both **single-server parallel processing** (multiple threads via Active Flow Count) and **multi-server clusters** (threads across multiple Decisions nodes).
+
+**Use when:** High-throughput topics where parallel processing across multiple threads or servers is desired.
 
 | | Lease Mode | Shared Subscription Mode |
 |---|---|---|
 | Protocol | 3.1.1 or 5.0 | 5.0 only |
-| Active nodes | 1 | All |
-| Message distribution | One node gets all | Broker round-robins |
+| Active connections | 1 (one thread, one server) | All threads on all servers |
+| Message distribution | One thread gets all | Broker round-robins |
+| Parallelism | Sequential | Configurable via Active Flow Count |
 | Failover | Automatic (lease expiry) | Automatic (broker reconnect) |
 | Configuration | Default | Set Shared Subscription Group |
 

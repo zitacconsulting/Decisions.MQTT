@@ -371,7 +371,7 @@ namespace Decisions.MqttMessageQueue
         [PropertyHiddenByValue(nameof(EffectiveProtocolVersion), "5.0", false)]
         public string SharedSubscriptionNote
         {
-            get => "Shared subscriptions (MQTT 5.0) distribute incoming messages across all Decisions cluster nodes instead of delivering a copy to each node. Enter a group name (e.g. 'decisions') to subscribe as '$share/{group}/{topic}'. When a group name is set, all cluster nodes connect simultaneously and the broker load-balances messages between them — the single-node lease mechanism is automatically bypassed. Leave empty to use the default lease-based mode where only one node is active at a time.";
+            get => "Shared subscriptions (MQTT 5.0) let the broker distribute messages across multiple consumers instead of delivering a copy to each one. Enter a group name (e.g. 'decisions') to subscribe as '$share/{group}/{topic}'. Each active worker thread connects independently and the broker load-balances messages between them — useful both for scaling across multiple Decisions servers and for parallel processing with multiple threads on a single server (controlled by Active Flow Count on the message handler). The single-connection lease mechanism is automatically bypassed when a group name is set. Leave empty to use the default mode where only one connection is active at a time.";
             set { }
         }
 

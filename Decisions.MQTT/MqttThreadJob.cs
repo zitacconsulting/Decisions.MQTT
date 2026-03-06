@@ -23,10 +23,6 @@ namespace Decisions.MqttMessageQueue
         private static readonly TimeSpan StandbyPollInterval = TimeSpan.FromSeconds(10);
         private static readonly TimeSpan MessageReceiveTimeout = TimeSpan.FromSeconds(1);
 
-        // Stable unique suffix for this process instance — ensures each Decisions process
-        // gets a distinct client ID in shared subscription mode, even on the same machine.
-        private static readonly string ProcessSuffix = $"{Environment.MachineName}-{Guid.NewGuid():N}";
-
         private string threadId;
         private bool isLeaseHolder;
         private IMqttClient mqttClient;
@@ -173,10 +169,13 @@ namespace Decisions.MqttMessageQueue
                 return Task.CompletedTask;
             };
 
-            // In shared subscription mode each node must have a unique client ID.
-            // In lease mode only one node connects so the shared queue client ID is fine.
+            // In shared subscription mode every connecting thread must have a unique client ID
+            // so the broker treats them as separate consumers. threadId is already a per-thread
+            // GUID, so it works correctly across both multiple servers and multiple threads on
+            // the same server.
+            // In lease mode only one thread connects, so the shared queue client ID is fine.
             string clientId = IsSharedSubscriptionMode
-                ? $"{MqttUtils.GetClientId(queueDefinition)}-{ProcessSuffix}"
+                ? $"{MqttUtils.GetClientId(queueDefinition)}-{threadId}"
                 : MqttUtils.GetClientId(queueDefinition);
 
             // Persistent sessions make less sense in shared subscription mode: if a node
