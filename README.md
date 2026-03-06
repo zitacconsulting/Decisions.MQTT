@@ -18,7 +18,6 @@
 - [Cluster Deployments](#cluster-deployments)
 - [Monitoring](#monitoring)
 - [Building from Source](#building-from-source)
-- [Troubleshooting](#troubleshooting)
 - [Disclaimer](#disclaimer)
 
 ## Features
@@ -56,7 +55,6 @@
 ## Requirements
 
 - **Decisions Platform**: Version 9.21.0 or higher
-- **.NET Runtime**: .NET 9.0 or higher
 - **MQTT Broker**: Any standards-compliant MQTT 3.1.1 or 5.0 broker (e.g. Mosquitto, EMQX, HiveMQ, AWS IoT Core)
 
 ## Installation
@@ -214,7 +212,7 @@ MQTT 5.0 messages can carry User Properties (key/value metadata set by the publi
 
 ## Cluster Deployments
 
-The module supports two cluster modes depending on the queue configuration:
+The module supports cluster modes depending on the queue configuration:
 
 ### Lease Mode (default)
 One cluster node holds the MQTT connection at a time. A database-backed lease (60-second TTL, renewed every 20 seconds) ensures exclusivity. If the active node goes down, the lease expires and another node takes over automatically.
@@ -253,7 +251,7 @@ Set the log level for the `MQTT` category.
 ## Building from Source
 
 ### Prerequisites
-- .NET 9.0 SDK or higher
+- .NET 10.0 SDK or higher
 - `CreateDecisionsModule` Global Tool (installed automatically during build)
 - Decisions Platform SDK (NuGet package: `DecisionsSDK`)
 - `Decisions.MessageQueues.dll` — copy from your Decisions installation (see below)
@@ -263,7 +261,11 @@ Set the log level for the `MQTT` category.
 `Decisions.MessageQueues.dll` is part of the Decisions platform and is not distributed with this module. Copy it from your Decisions server installation:
 
 ```
-{Decisions install path}/Modules/Decisions.MessageQueues/Decisions.MessageQueues.dll
+{Decisions install path}\Decisions Server\modules\Decisions.MessageQueues\CoreServicesDlls\Decisions.MessageQueues.dll
+```
+or Extract it from
+```
+{Decisions install path}\Decisions Server\modules\Decisions.MessageQueues.zip
 ```
 
 Place the file in the **repository root** (next to `Decisions.MQTT.sln`) before building. It is referenced by the project via `<HintPath>..\Decisions.MessageQueues.dll</HintPath>` and is excluded from source control.
@@ -302,52 +304,6 @@ The build creates `Decisions.MQTT.zip` in the root directory containing:
 
 Upload the ZIP directly to Decisions via **System > Administration > Features**.
 
-## Troubleshooting
-
-### Connection Test Goes to localhost
-**Problem:** The connection test connects to `localhost` instead of the configured broker.
-
-**Solution:**
-- Verify broker settings are saved under **System > Settings > Message Queue Settings > MQTT Settings**
-- If using per-queue override, ensure **Override Global Settings** is enabled on the queue
-
-### Queue Disappears After Restart
-**Problem:** A queue was created but is no longer visible after restart.
-
-**Solution:**
-- This was caused by an internal ID conflict between lease records and queue entities in early versions. Update to the latest module version.
-- Delete any stale records from the `mqtt_lease` database table.
-
-### Messages Not Received
-**Problem:** Queue is running but no messages arrive.
-
-**Solution:**
-- Use the **Test Queue** button to verify broker connectivity
-- Confirm the topic filter matches the topics your broker is publishing to
-- Check QoS — if the broker publishes at QoS 0 and the session was disconnected, messages may have been dropped
-- Enable `DEBUG` logging and check for subscription errors
-
-### Wildcard Topic Publish Error
-**Problem:** `Cannot publish to wildcard topic` error when using Publish MQTT Message step.
-
-**Solution:**
-- Use a concrete topic in **Topic Override** — MQTT does not allow publishing to wildcard topics
-
-### TLS Connection Fails
-**Problem:** Connection fails when TLS is enabled.
-
-**Solution:**
-- Verify the broker's certificate is trusted by the Decisions server's certificate store
-- Confirm the correct port is used (default 8883 for TLS)
-- Check broker TLS configuration allows the cipher suites supported by .NET
-
-### Shared Subscription Not Working
-**Problem:** Shared subscription group has no effect.
-
-**Solution:**
-- Shared subscriptions require **Protocol Version: 5.0**
-- Verify the broker supports MQTT 5.0 shared subscriptions
-- Confirm the group name contains only valid characters (no spaces or special characters)
 
 ## Disclaimer
 
