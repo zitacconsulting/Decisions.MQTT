@@ -9,6 +9,7 @@ using DecisionsFramework.Design.Properties.Attributes;
 using DecisionsFramework.ServiceLayer;
 using DecisionsFramework.ServiceLayer.Utilities;
 using Decisions.MessageQueues;
+using MQTTnet.Formatter;
 
 namespace Decisions.MqttMessageQueue
 {
@@ -89,7 +90,7 @@ namespace Decisions.MqttMessageQueue
         public bool OverrideSettings
         {
             get { return overrideSettings; }
-            set { overrideSettings = value; OnPropertyChanged(); }
+            set { overrideSettings = value; OnPropertyChanged(); OnPropertyChanged(nameof(EffectiveProtocolVersion)); }
         }
 
         [ORMField]
@@ -102,7 +103,7 @@ namespace Decisions.MqttMessageQueue
         public string Server
         {
             get { return server; }
-            set { server = value; }
+            set { server = value; OnPropertyChanged(); }
         }
 
         [ORMField]
@@ -142,7 +143,48 @@ namespace Decisions.MqttMessageQueue
         public bool UseTls
         {
             get { return useTls; }
-            set { useTls = value; }
+            set { useTls = value; OnPropertyChanged(); OnPropertyChanged(nameof(EffectivePortNote)); UpdateDefaultPort(); }
+        }
+
+        [ORMField]
+        [WritableValue]
+        private bool useWebSocket;
+
+        [DataMember]
+        [PropertyClassification(6, "Use WebSocket Transport", "2 Connection")]
+        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
+        public bool UseWebSocket
+        {
+            get { return useWebSocket; }
+            set { useWebSocket = value; OnPropertyChanged(); OnPropertyChanged(nameof(EffectivePortNote)); UpdateDefaultPort(); }
+        }
+
+        [ORMField]
+        [WritableValue]
+        private string webSocketPath = "/mqtt";
+
+        [DataMember]
+        [PropertyClassification(7, "WebSocket Path", "2 Connection")]
+        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
+        [BooleanPropertyHidden(nameof(UseWebSocket), false)]
+        public string WebSocketPath
+        {
+            get { return webSocketPath; }
+            set { webSocketPath = value; }
+        }
+
+        [ReadonlyEditor]
+        [PropertyClassification(8, "Effective Port", ["2 Connection"])]
+        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
+        [BooleanPropertyHidden(nameof(UseDefaultPort), false)]
+        public string EffectivePortNote
+        {
+            get
+            {
+                int port = UseWebSocket ? (UseTls ? 8084 : 8083) : (UseTls ? 8883 : 1883);
+                return $"Using default port: {port}";
+            }
+            set { }
         }
 
         [ORMField]
@@ -150,7 +192,7 @@ namespace Decisions.MqttMessageQueue
         private string username;
 
         [DataMember]
-        [PropertyClassification(6, "Username", "2 Connection")]
+        [PropertyClassification(9, "Username", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public string Username
         {
@@ -163,7 +205,7 @@ namespace Decisions.MqttMessageQueue
         private string password;
 
         [DataMember]
-        [PropertyClassification(7, "Password", "2 Connection")]
+        [PropertyClassification(10, "Password", "2 Connection")]
         [PasswordText]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public string Password
@@ -177,73 +219,28 @@ namespace Decisions.MqttMessageQueue
         private string protocolVersion = "3.1.1";
 
         [DataMember]
-        [PropertyClassification(8, "Protocol Version", "2 Connection")]
+        [PropertyClassification(10, "Protocol Version", "2 Connection")]
         [SelectStringEditor(nameof(ProtocolVersionOptions))]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public string ProtocolVersion
         {
             get { return protocolVersion; }
-            set { protocolVersion = value; }
+            set { protocolVersion = value; OnPropertyChanged(nameof(EffectiveProtocolVersion)); }
         }
 
         [PropertyHidden]
         public string[] ProtocolVersionOptions => new[] { "3.1.1", "5.0" };
 
-        [ReadonlyEditor]
-        [PropertyClassification(9, "Client ID Info", new string[] { "2 Connection" })]
-        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
-        public string ClientIdNote
-        {
-            get => "By default, each queue uses an auto-generated client ID ('decisions-mqtt-{queueId}'). Override this if your broker enforces specific client ID naming conventions.";
-            set { }
-        }
-
-        [ORMField]
-        [WritableValue]
-        private string clientIdOverride;
-
-        [DataMember]
-        [PropertyClassification(10, "Client ID Override", "2 Connection")]
-        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
-        public string ClientIdOverride
-        {
-            get { return clientIdOverride; }
-            set { clientIdOverride = value; }
-        }
-
-        [ORMField]
-        [WritableValue]
-        private bool useWebSocket;
-
-        [DataMember]
-        [PropertyClassification(11, "Use WebSocket Transport", "2 Connection")]
-        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
-        public bool UseWebSocket
-        {
-            get { return useWebSocket; }
-            set { useWebSocket = value; OnPropertyChanged(); }
-        }
-
-        [ORMField]
-        [WritableValue]
-        private string webSocketPath = "/mqtt";
-
-        [DataMember]
-        [PropertyClassification(12, "WebSocket Path", "2 Connection")]
-        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
-        [BooleanPropertyHidden(nameof(UseWebSocket), false)]
-        public string WebSocketPath
-        {
-            get { return webSocketPath; }
-            set { webSocketPath = value; }
-        }
+        [PropertyHidden]
+        public string EffectiveProtocolVersion =>
+            MqttUtils.GetProtocolVersion(this) == MqttProtocolVersion.V500 ? "5.0" : "3.1.1";
 
         [ORMField]
         [WritableValue]
         private int keepAliveSeconds = 60;
 
         [DataMember]
-        [PropertyClassification(13, "Keep Alive (seconds)", "2 Connection")]
+        [PropertyClassification(11, "Keep Alive (seconds)", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public int KeepAliveSeconds
         {
@@ -256,7 +253,7 @@ namespace Decisions.MqttMessageQueue
         private int connectionTimeoutSeconds = 10;
 
         [DataMember]
-        [PropertyClassification(14, "Connection Timeout (seconds)", "2 Connection")]
+        [PropertyClassification(12, "Connection Timeout (seconds)", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public int ConnectionTimeoutSeconds
         {
@@ -269,7 +266,7 @@ namespace Decisions.MqttMessageQueue
         private bool persistentSession = true;
 
         [DataMember]
-        [PropertyClassification(15, "Persistent Session", "2 Connection")]
+        [PropertyClassification(13, "Persistent Session", "2 Connection")]
         [BooleanPropertyHidden(nameof(OverrideSettings), false)]
         public bool PersistentSession
         {
@@ -277,29 +274,7 @@ namespace Decisions.MqttMessageQueue
             set { persistentSession = value; }
         }
 
-        [ReadonlyEditor]
-        [PropertyClassification(16, "Shared Subscription Info", new string[] { "2 Connection" })]
-        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
-        [PropertyHiddenByValue(nameof(ProtocolVersion), "5.0", false)]
-        public string SharedSubscriptionNote
-        {
-            get => "Shared subscriptions (MQTT 5.0) distribute incoming messages across all Decisions cluster nodes instead of delivering a copy to each node. Enter a group name (e.g. 'decisions') to subscribe as '$share/{group}/{topic}'. When a group name is set, all cluster nodes connect simultaneously and the broker load-balances messages between them — the single-node lease mechanism is automatically bypassed. Leave empty to use the default lease-based mode where only one node is active at a time.";
-            set { }
-        }
 
-        [ORMField]
-        [WritableValue]
-        private string sharedSubscriptionGroup;
-
-        [DataMember]
-        [PropertyClassification(17, "Shared Subscription Group", "2 Connection")]
-        [BooleanPropertyHidden(nameof(OverrideSettings), false)]
-        [PropertyHiddenByValue(nameof(ProtocolVersion), "5.0", false)]
-        public string SharedSubscriptionGroup
-        {
-            get { return sharedSubscriptionGroup; }
-            set { sharedSubscriptionGroup = value; }
-        }
 
         // --- Advanced ---
 
@@ -321,6 +296,48 @@ namespace Decisions.MqttMessageQueue
         {
             get { return messageBufferSize; }
             set { messageBufferSize = value; }
+        }
+
+        [ReadonlyEditor]
+        [PropertyClassification(3, "Client ID Info", new string[] { "3 Advanced" })]
+        public string ClientIdNote
+        {
+            get => "By default, each queue uses an auto-generated client ID ('decisions-mqtt-{queueId}'). Override this if your broker enforces specific client ID naming conventions.";
+            set { }
+        }
+
+        [ORMField]
+        [WritableValue]
+        private string? clientIdOverride;
+
+        [DataMember]
+        [PropertyClassification(4, "Client ID Override", "3 Advanced")]
+        public string? ClientIdOverride
+        {
+            get { return clientIdOverride; }
+            set { clientIdOverride = value; }
+        }
+
+        [ReadonlyEditor]
+        [PropertyClassification(5, "Shared Subscription Info", new string[] { "3 Advanced" })]
+        [PropertyHiddenByValue(nameof(EffectiveProtocolVersion), "5.0", false)]
+        public string SharedSubscriptionNote
+        {
+            get => "Shared subscriptions (MQTT 5.0) distribute incoming messages across all Decisions cluster nodes instead of delivering a copy to each node. Enter a group name (e.g. 'decisions') to subscribe as '$share/{group}/{topic}'. When a group name is set, all cluster nodes connect simultaneously and the broker load-balances messages between them — the single-node lease mechanism is automatically bypassed. Leave empty to use the default lease-based mode where only one node is active at a time.";
+            set { }
+        }
+
+        [ORMField]
+        [WritableValue]
+        private string? sharedSubscriptionGroup;
+
+        [DataMember]
+        [PropertyClassification(6, "Shared Subscription Group", "3 Advanced")]
+        [PropertyHiddenByValue(nameof(EffectiveProtocolVersion), "5.0", false)]
+        public string? SharedSubscriptionGroup
+        {
+            get { return sharedSubscriptionGroup; }
+            set { sharedSubscriptionGroup = value; }
         }
 
         // --- Last Will and Testament ---
@@ -398,6 +415,12 @@ namespace Decisions.MqttMessageQueue
             set { lwtRetain = value; }
         }
 
+        private void UpdateDefaultPort()
+        {
+            port = useWebSocket ? (useTls ? 8084 : 8083) : (useTls ? 8883 : 1883);
+            OnPropertyChanged(nameof(Port));
+        }
+
         public int GetLwtQosInt()
         {
             if (lwtQosLevel?.StartsWith("2") == true) return 2;
@@ -420,6 +443,9 @@ namespace Decisions.MqttMessageQueue
 
             if (MessageBufferSize < 1)
                 issues.Add(new ValidationIssue(this, "Message Buffer Size must be at least 1", "", BreakLevel.Fatal));
+
+            if (!string.IsNullOrEmpty(SharedSubscriptionGroup) && MqttUtils.GetProtocolVersion(this) != MqttProtocolVersion.V500)
+                issues.Add(new ValidationIssue(this, "Shared Subscription Group requires Protocol Version 5.0", "", BreakLevel.Fatal));
 
             return issues.ToArray();
         }

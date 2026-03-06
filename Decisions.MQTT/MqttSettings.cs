@@ -15,6 +15,8 @@ namespace Decisions.MqttMessageQueue
         protected override string QueueTypeName => "MQTT";
         public override string ModuleName => "Decisions.MQTT";
 
+        // --- Transport ---
+
         [ORMField]
         [WritableValue]
         private string server;
@@ -24,7 +26,7 @@ namespace Decisions.MqttMessageQueue
         public string Server
         {
             get { return server; }
-            set { server = value; }
+            set { server = value; OnPropertyChanged(); }
         }
 
         [ORMField]
@@ -61,7 +63,43 @@ namespace Decisions.MqttMessageQueue
         public bool UseTls
         {
             get { return useTls; }
-            set { useTls = value; }
+            set { useTls = value; OnPropertyChanged(); OnPropertyChanged(nameof(EffectivePortNote)); UpdateDefaultPort(); }
+        }
+
+        [ORMField]
+        [WritableValue]
+        private bool useWebSocket;
+
+        [DataMember]
+        [PropertyClassification(5, "Use WebSocket Transport", "Settings")]
+        public bool UseWebSocket
+        {
+            get { return useWebSocket; }
+            set { useWebSocket = value; OnPropertyChanged(); OnPropertyChanged(nameof(EffectivePortNote)); UpdateDefaultPort(); }
+        }
+
+        [ORMField]
+        [WritableValue]
+        private string webSocketPath = "/mqtt";
+
+        [DataMember]
+        [PropertyClassification(6, "WebSocket Path", "Settings")]
+        [BooleanPropertyHidden(nameof(UseWebSocket), false)]
+        public string WebSocketPath
+        {
+            get { return webSocketPath; }
+            set { webSocketPath = value; }
+        }
+
+        // --- Authentication ---
+
+        [ReadonlyEditor]
+        [PropertyClassification(7, "Effective Port", "Settings")]
+        [BooleanPropertyHidden(nameof(UseDefaultPort), false)]
+        public string EffectivePortNote
+        {
+            get => $"Using default port: {GetEffectivePort()}";
+            set { }
         }
 
         [ORMField]
@@ -69,7 +107,7 @@ namespace Decisions.MqttMessageQueue
         private string username;
 
         [DataMember]
-        [PropertyClassification(5, "Username", "Settings")]
+        [PropertyClassification(8, "Username", "Settings")]
         public string Username
         {
             get { return username; }
@@ -81,7 +119,7 @@ namespace Decisions.MqttMessageQueue
         private string password;
 
         [DataMember]
-        [PropertyClassification(6, "Password", "Settings")]
+        [PropertyClassification(9, "Password", "Settings")]
         [PasswordText]
         public string Password
         {
@@ -89,12 +127,14 @@ namespace Decisions.MqttMessageQueue
             set { password = value; }
         }
 
+        // --- Protocol & Session ---
+
         [ORMField]
         [WritableValue]
         private string protocolVersion = "3.1.1";
 
         [DataMember]
-        [PropertyClassification(7, "Protocol Version", "Settings")]
+        [PropertyClassification(10, "Protocol Version", "Settings")]
         [SelectStringEditor(nameof(ProtocolVersionOptions))]
         public string ProtocolVersion
         {
@@ -110,7 +150,7 @@ namespace Decisions.MqttMessageQueue
         private int keepAliveSeconds = 60;
 
         [DataMember]
-        [PropertyClassification(8, "Keep Alive (seconds)", "Settings")]
+        [PropertyClassification(11, "Keep Alive (seconds)", "Settings")]
         public int KeepAliveSeconds
         {
             get { return keepAliveSeconds; }
@@ -122,7 +162,7 @@ namespace Decisions.MqttMessageQueue
         private int connectionTimeoutSeconds = 10;
 
         [DataMember]
-        [PropertyClassification(9, "Connection Timeout (seconds)", "Settings")]
+        [PropertyClassification(12, "Connection Timeout (seconds)", "Settings")]
         public int ConnectionTimeoutSeconds
         {
             get { return connectionTimeoutSeconds; }
@@ -131,45 +171,29 @@ namespace Decisions.MqttMessageQueue
 
         [ORMField]
         [WritableValue]
-        private bool useWebSocket;
-
-        [DataMember]
-        [PropertyClassification(10, "Use WebSocket Transport", "Settings")]
-        public bool UseWebSocket
-        {
-            get { return useWebSocket; }
-            set { useWebSocket = value; OnPropertyChanged(); }
-        }
-
-        [ORMField]
-        [WritableValue]
-        private string webSocketPath = "/mqtt";
-
-        [DataMember]
-        [PropertyClassification(11, "WebSocket Path", "Settings")]
-        [BooleanPropertyHidden(nameof(UseWebSocket), false)]
-        public string WebSocketPath
-        {
-            get { return webSocketPath; }
-            set { webSocketPath = value; }
-        }
-
-        [ORMField]
-        [WritableValue]
         private bool persistentSession = true;
 
         [DataMember]
-        [PropertyClassification(12, "Persistent Session", "Settings")]
+        [PropertyClassification(13, "Persistent Session", "Settings")]
         public bool PersistentSession
         {
             get { return persistentSession; }
             set { persistentSession = value; }
         }
 
+        private void UpdateDefaultPort()
+        {
+            port = useWebSocket ? (useTls ? 8084 : 8083) : (useTls ? 8883 : 1883);
+            OnPropertyChanged(nameof(Port));
+        }
+
         public int GetEffectivePort()
         {
             if (UseDefaultPort)
+            {
+                if (UseWebSocket) return UseTls ? 8084 : 8083;
                 return UseTls ? 8883 : 1883;
+            }
             return Port;
         }
     }

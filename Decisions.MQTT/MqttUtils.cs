@@ -136,7 +136,12 @@ namespace Decisions.MqttMessageQueue
         {
             if (queueDef.OverrideSettings && !string.IsNullOrEmpty(queueDef.Server))
                 return queueDef.Server;
-            return GetSettingsForQueue(queueDef)?.Server ?? "localhost";
+            string host = GetSettingsForQueue(queueDef)?.Server;
+            if (string.IsNullOrEmpty(host))
+                throw new InvalidOperationException(
+                    $"MQTT queue '{queueDef.DisplayName}': Broker Host is not configured. " +
+                    "Set it in the global MQTT Settings or enable Override Settings on the queue.");
+            return host;
         }
 
         public static int GetPort(MqttMessageQueue queueDef)
@@ -145,6 +150,7 @@ namespace Decisions.MqttMessageQueue
             {
                 if (!queueDef.UseDefaultPort)
                     return queueDef.Port;
+                if (queueDef.UseWebSocket) return queueDef.UseTls ? 8084 : 8083;
                 return queueDef.UseTls ? 8883 : 1883;
             }
             return GetSettingsForQueue(queueDef)?.GetEffectivePort() ?? 1883;
